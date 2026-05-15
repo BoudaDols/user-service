@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/dolsom/user-service/internal/model"
 	"github.com/dolsom/user-service/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -28,7 +29,7 @@ func (h *ActivityHandler) GetByUserID(c *gin.Context) {
 	}
 
 	if logs == nil {
-		logs = []any{}
+		logs = []model.ActivityLog{}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": logs})

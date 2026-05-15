@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 
+	"github.com/dolsom/user-service/internal/model"
 	"github.com/dolsom/user-service/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -25,7 +26,7 @@ func (h *PreferenceHandler) GetAll(c *gin.Context) {
 	}
 
 	if prefs == nil {
-		prefs = []any{}
+		prefs = []model.Preference{}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": prefs})

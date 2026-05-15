@@ -1,0 +1,130 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Only proceed if CI passed
+  # ─────────────────────────────────────────────
+  check-ci:
+    name: Check CI Status
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - run: echo "CI passed — proceeding with deployment"
+
+  # ─────────────────────────────────────────────
+  # Deploy to Local Kubernetes
+  # ─────────────────────────────────────────────
+  deploy-local:
+    name: Deploy to Local Kubernetes
+    runs-on: self-hosted
+    needs: check-ci
+    env:
+      NAMESPACE: default
+
+    steps:
+      - name: Set kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_LOCAL }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Update secret
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          kubectl create secret generic user-service-secret \
+            --namespace="${NAMESPACE}" \
+            --from-literal=DB_PASSWORD="${DB_PASSWORD}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Rollout restart
+        run: kubectl rollout restart deployment/user-service -n ${{ env.NAMESPACE }}
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/user-service -n ${{ env.NAMESPACE }} --timeout=120s
+
+  # ─────────────────────────────────────────────
+  # Deploy to AWS EKS
+  # ─────────────────────────────────────────────
+  deploy-aws:
+    name: Deploy to AWS EKS
+    runs-on: ubuntu-latest
+    needs: check-ci
+    env:
+      NAMESPACE: default
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.EKS_CLUSTER_NAME }}
+
+      - name: Update secret
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          kubectl create secret generic user-service-secret \
+            --namespace="${NAMESPACE}" \
+            --from-literal=DB_PASSWORD="${DB_PASSWORD}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Update image tag
+        env:
+          IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/user-service
+          SHA: ${{ github.sha }}
+        run: kubectl set image deployment/user-service user-service="${IMAGE}:${SHA}" -n "${NAMESPACE}"
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/user-service -n ${{ env.NAMESPACE }} --timeout=120s
+
+  # ─────────────────────────────────────────────
+  # Deploy to Azure AKS
+  # ─────────────────────────────────────────────
+  deploy-azure:
+    name: Deploy to Azure AKS
+    runs-on: ubuntu-latest
+    needs: check-ci
+    env:
+      NAMESPACE: default
+
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Update kubeconfig
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
+            --name ${{ secrets.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
+
+      - name: Update secret
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          kubectl create secret generic user-service-secret \
+            --namespace="${NAMESPACE}" \
+            --from-literal=DB_PASSWORD="${DB_PASSWORD}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Update image tag
+        env:
+          IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/user-service
+          SHA: ${{ github.sha }}
+        run: kubectl set image deployment/user-service user-service="${IMAGE}:${SHA}" -n "${NAMESPACE}"
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/user-service -n ${{ env.NAMESPACE }} --timeout=120s
