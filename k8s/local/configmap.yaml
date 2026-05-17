@@ -10,4 +10,4 @@ data:
   DB_PORT: "3306"
   DB_DATABASE: "user_service"
   DB_USERNAME: "root"
-  KAFKA_BROKER: "kafka:9092"
+  KAFKA_BROKER: "kafka.default.svc.cluster.local:9092"
